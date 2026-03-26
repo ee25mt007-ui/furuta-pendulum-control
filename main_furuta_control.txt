@@ -1,0 +1,166 @@
+%% ==========================================================
+% EE303L - Furuta Pendulum Control
+% State Feedback Control (Linear + Nonlinear Analysis)
+% Author Rathod Shridhar
+% Roll No EE25MT007
+%% ==========================================================
+
+clc;
+clear;
+close all;
+
+%% ==============================
+% SYSTEM MATRICES (INVERTED MODEL)
+%% ==============================
+A = [0 0 1 0;
+     0 0 0 1;
+     0 123.98 -1.577 0;
+     0 111.62 -0.7253 0];
+
+B = [0; 0; 1; 1];
+
+%% ==============================
+% CONTROLLABILITY CHECK
+%% ==============================
+disp('Checking controllability...');
+
+if rank(ctrb(A,B)) == 4
+    disp('System is controllable');
+else
+    error('System NOT controllable');
+end
+
+%% ==============================
+% POLE SELECTION
+%% ==============================
+p = [-2 -3 -4 -5];
+
+%% ==============================
+% STATE FEEDBACK GAIN
+%% ==============================
+K = place(A,B,p);
+Acl = A - BK;
+
+sys = ss(Acl,B,eye(4),0);
+
+%% ==============================
+% SIMULATION PARAMETERS
+%% ==============================
+t = 00.0110;
+IC = [pi40, pi10, pi4];
+
+%% ==============================
+% LINEAR SIMULATION
+%% ==============================
+disp('Running Linear Simulations...');
+
+for i = 1length(IC)
+
+    x0 = [0; IC(i); 0; 0];
+
+    [y,t,x] = initial(sys,x0,t);
+
+    % Control input with saturation
+    u = (-Kx')';
+    u = max(min(u,12),-12);
+
+    % Plot
+    figure('Name',['Linear Response IC = ', num2str(IC(i))]);
+
+    subplot(3,1,1)
+    plot(t,x(,1),'b',t,x(,2),'r','LineWidth',1.5)
+    xlabel('Time (s)')
+    ylabel('Angle (rad)')
+    legend('theta','alpha')
+    title(['Linear Response (IC = ', num2str(IC(i)), ')'])
+    grid on
+
+    subplot(3,1,2)
+    plot(t,x(,3),'b',t,x(,4),'r','LineWidth',1.5)
+    xlabel('Time (s)')
+    ylabel('Velocity (rads)')
+    legend('theta dot','alpha dot')
+    grid on
+
+    subplot(3,1,3)
+    plot(t,u,'k','LineWidth',1.5)
+    xlabel('Time (s)')
+    ylabel('Voltage (V)')
+    title('Control Input (Saturated)')
+    grid on
+
+end
+
+%% ==============================
+% NONLINEAR SIMULATION
+%% ==============================
+disp('Running Nonlinear Simulations...');
+
+tspan = [0 10];
+
+for i = 1length(IC)
+
+    x0 = [0; IC(i); 0; 0];
+
+    % Nonlinear model
+    [t_nl, x_nl] = ode45(@(t,x) nonlinear_model(t,x,K), tspan, x0);
+
+    % Linear model for comparison
+    [~,~,x_lin] = initial(sys,x0,t);
+    x_lin_interp = interp1(t,x_lin,t_nl);
+
+    % Control input
+    u_nl = (-Kx_nl')';
+    u_nl = max(min(u_nl,12),-12);
+
+    % Plot
+    figure('Name',['Nonlinear Comparison IC = ', num2str(IC(i))]);
+
+    subplot(3,1,1)
+    plot(t_nl,x_lin_interp(,2),'b',t_nl,x_nl(,2),'r','LineWidth',1.5)
+    xlabel('Time (s)')
+    ylabel('Pendulum Angle (rad)')
+    legend('Linear','Nonlinear')
+    title(['Angle Comparison (IC = ', num2str(IC(i)), ')'])
+    grid on
+
+    subplot(3,1,2)
+    plot(t_nl,x_lin_interp(,4),'b',t_nl,x_nl(,4),'r','LineWidth',1.5)
+    xlabel('Time (s)')
+    ylabel('Angular Velocity (rads)')
+    legend('Linear','Nonlinear')
+    grid on
+
+    subplot(3,1,3)
+    plot(t_nl,u_nl,'k','LineWidth',1.5)
+    xlabel('Time (s)')
+    ylabel('Voltage (V)')
+    title('Control Input (Saturated)')
+    grid on
+
+end
+
+%% ==============================
+% NONLINEAR MODEL FUNCTION
+%% ==============================
+function dx = nonlinear_model(~,x,K)
+
+theta = x(1);
+alpha = x(2);
+thetad = x(3);
+alphad = x(4);
+
+% Control input
+u = -Kx;
+u = max(min(u,12),-12);
+
+dx = zeros(4,1);
+
+dx(1) = thetad;
+dx(2) = alphad;
+
+% Approx nonlinear dynamics
+dx(3) = -1.5thetad + 120sin(alpha) + u;
+dx(4) = -0.7alphad + 110sin(alpha);
+
+end
