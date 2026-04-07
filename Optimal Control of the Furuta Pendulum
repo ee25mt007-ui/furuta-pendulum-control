@@ -1,0 +1,170 @@
+clc; clear; close all;
+
+%% SYSTEM MATRICES
+A = [0 0 1 0;
+     0 0 0 1;
+     0 123.98 -1.577 0;
+     0 111.62 -0.7253 0];
+
+B = [0;0;1;1];
+
+%% CONTROLLERS
+K_pp  = place(A,B,[-2 -3 -4 -5]);
+
+Q = diag([10 200 1 1]);
+R = 5;
+[K_lqr,~,~] = lqr(A,B,Q,R);
+
+%% SIMULATION SETTINGS
+t = 0:0.01:10;
+IC_values = [pi/40, pi/10, pi/4];
+
+%% LOOP OVER INITIAL CONDITIONS
+for i = 1:length(IC_values)
+
+    alpha0 = IC_values(i);
+    x0 = [0; alpha0; 0; 0];
+
+    %% =========================
+    %% LINEAR SYSTEM
+    %% =========================
+    Acl_pp  = A - B*K_pp;
+    Acl_lqr = A - B*K_lqr;
+
+    sys_pp  = ss(Acl_pp,B,eye(4),0);
+    sys_lqr = ss(Acl_lqr,B,eye(4),0);
+
+    [~,~,x_pp]  = initial(sys_pp,x0,t);
+    [~,~,x_lqr] = initial(sys_lqr,x0,t);
+
+    u_pp  = (-K_pp*x_pp')';
+    u_lqr = (-K_lqr*x_lqr')';
+
+    % Saturation
+    u_pp  = max(min(u_pp,12),-12);
+    u_lqr = max(min(u_lqr,12),-12);
+
+    %% ===== FILE NAME TAG =====
+    if i==1
+        tag = 'small';
+    elseif i==2
+        tag = 'medium';
+    else
+        tag = 'large';
+    end
+
+    %% =========================
+    %% LINEAR PLOTS
+    %% =========================
+
+    % ANGLES
+    figure;
+    subplot(2,1,1)
+    plot(t,x_pp(:,1),'--','LineWidth',1.5); hold on;
+    plot(t,x_lqr(:,1),'LineWidth',1.5);
+    title(['Linear Base Angle \theta (',tag,')'])
+    legend('Pole Placement','LQR')
+
+    subplot(2,1,2)
+    plot(t,x_pp(:,2),'--','LineWidth',1.5); hold on;
+    plot(t,x_lqr(:,2),'LineWidth',1.5);
+    title('Pendulum Angle \alpha')
+    legend('Pole Placement','LQR')
+
+    saveas(gcf,['linear_' tag '_angles.png'])
+
+    % VELOCITIES
+    figure;
+    subplot(2,1,1)
+    plot(t,x_pp(:,3),'--','LineWidth',1.5); hold on;
+    plot(t,x_lqr(:,3),'LineWidth',1.5);
+    title('\theta dot')
+
+    subplot(2,1,2)
+    plot(t,x_pp(:,4),'--','LineWidth',1.5); hold on;
+    plot(t,x_lqr(:,4),'LineWidth',1.5);
+    title('\alpha dot')
+
+    saveas(gcf,['linear_' tag '_velocity.png'])
+
+    % INPUT
+    figure;
+    plot(t,u_pp,'--','LineWidth',1.5); hold on;
+    plot(t,u_lqr,'LineWidth',1.5);
+    title(['Control Input (',tag,')'])
+    legend('Pole Placement','LQR')
+
+    saveas(gcf,['linear_' tag '_input.png'])
+
+    %% =========================
+    %% NONLINEAR SYSTEM
+    %% =========================
+
+    [t_nl, x_nl] = ode45(@(t,x) furuta_nonlinear(t,x,K_lqr), t, x0);
+
+    u_nl = (-K_lqr*x_nl')';
+    u_nl = max(min(u_nl,12),-12);
+
+    %% =========================
+    %% NONLINEAR COMPARISON
+    %% =========================
+
+    % ANGLES
+    figure;
+    subplot(2,1,1)
+    plot(t,x_lqr(:,1),'--','LineWidth',1.5); hold on;
+    plot(t_nl,x_nl(:,1),'LineWidth',1.5);
+    title(['Linear vs Nonlinear \theta (',tag,')'])
+    legend('Linear','Nonlinear')
+
+    subplot(2,1,2)
+    plot(t,x_lqr(:,2),'--','LineWidth',1.5); hold on;
+    plot(t_nl,x_nl(:,2),'LineWidth',1.5);
+    title('Linear vs Nonlinear \alpha')
+
+    saveas(gcf,['nonlinear_' tag '_angles.png'])
+
+    % VELOCITIES
+    figure;
+    subplot(2,1,1)
+    plot(t,x_lqr(:,3),'--','LineWidth',1.5); hold on;
+    plot(t_nl,x_nl(:,3),'LineWidth',1.5);
+    title('Linear vs Nonlinear \theta dot')
+
+    subplot(2,1,2)
+    plot(t,x_lqr(:,4),'--','LineWidth',1.5); hold on;
+    plot(t_nl,x_nl(:,4),'LineWidth',1.5);
+    title('Linear vs Nonlinear \alpha dot')
+
+    saveas(gcf,['nonlinear_' tag '_velocity.png'])
+
+    % INPUT
+    figure;
+    plot(t,u_lqr,'--','LineWidth',1.5); hold on;
+    plot(t_nl,u_nl,'LineWidth',1.5);
+    title(['Linear vs Nonlinear Input (',tag,')'])
+    legend('Linear','Nonlinear')
+
+    saveas(gcf,['nonlinear_' tag '_input.png'])
+
+end
+
+%% =========================
+%% NONLINEAR MODEL FUNCTION
+%% =========================
+function dx = furuta_nonlinear(~,x,K)
+
+    u = -K*x;
+    u = max(min(u,12),-12);
+
+    dx = zeros(4,1);
+
+    dx(1) = x(3);
+    dx(2) = x(4);
+
+    % NOTE: Replace with actual Furuta nonlinear dynamics
+    dx(3) = -1.577*x(3) + 123.98*sin(x(2)) + u;
+    dx(4) = -0.7253*x(4) + 111.62*sin(x(2)) + u;
+
+end
+
