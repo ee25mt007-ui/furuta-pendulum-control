@@ -1,10 +1,153 @@
-%% ==========================================================
-% EE303L - Furuta Pendulum Control
-% State Feedback Control (Linear + Nonlinear Analysis)
-% Author Rathod Shridhar
-% Roll No EE25MT007
-%% ==========================================================
 
+//Arduino code
+const long SERIAL_BAUD = 115200;
+const unsigned long Ts_ms = 10;
+
+// -------- LQR GAINS --------
+float K[4] = {-1.5, -1.0, -30.0, -8.0};
+
+// -------- SCALING --------
+float gainScale = 5.0;   // ONLY tuning parameter
+
+// -------- OFFSETS --------
+float arm_offset = 0.0;
+float pend_offset = 0.0;
+
+// -------- HARDWARE --------
+const int ENC1_A = 20, ENC1_B = 21;
+const int ENC2_A = 19, ENC2_B = 18;
+
+const int PWM_PIN = 5;
+const int DIR_PIN = 4;
+
+const float V_SUPPLY = 12.0;
+
+// -------- ENCODERS --------
+volatile long count_arm = 0;
+volatile long count_pend = 0;
+
+// -------- FILTER --------
+const float LPF = 0.8;
+
+// -------- STATES --------
+long prev_arm = 0, prev_pend = 0;
+float vel_arm_f = 0, vel_pend_f = 0;
+
+unsigned long t_prev = 0;
+
+
+void setup() {
+
+  Serial.begin(SERIAL_BAUD);
+
+  pinMode(ENC1_A, INPUT_PULLUP);
+  pinMode(ENC1_B, INPUT_PULLUP);
+  pinMode(ENC2_A, INPUT_PULLUP);
+  pinMode(ENC2_B, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(ENC1_A), enc1A_ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC1_B), enc1B_ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC2_A), enc2A_ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC2_B), enc2B_ISR, CHANGE);
+
+  pinMode(PWM_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+
+  analogWrite(PWM_PIN, 0);
+
+  Serial.println("t,arm,pend,u");
+}
+
+
+void loop() {
+
+  unsigned long t_now = millis();
+
+  if (t_now - t_prev >= Ts_ms) {
+
+    float dt = (t_now - t_prev) * 1e-3;
+
+    long arm_cnt, pend_cnt;
+
+    noInterrupts();
+    arm_cnt = count_arm;
+    pend_cnt = count_pend;
+    interrupts();
+
+    float d_arm = arm_cnt - prev_arm;
+    float d_pend = pend_cnt - prev_pend;
+
+    if (d_arm > 1000) d_arm -= 2000;
+    else if (d_arm < -1000) d_arm += 2000;
+
+    if (d_pend > 1000) d_pend -= 2000;
+    else if (d_pend < -1000) d_pend += 2000;
+
+    float armVel = (d_arm * PI/1000.0) / dt;
+    float pendVel = (d_pend * PI/1000.0) / dt;
+
+    vel_arm_f = LPF * armVel + (1 - LPF) * vel_arm_f;
+    vel_pend_f = LPF * pendVel + (1 - LPF) * vel_pend_f;
+
+    float arm = arm_cnt * PI/1000.0 - arm_offset;
+    float pend = pend_cnt * PI/1000.0 - pend_offset;
+
+     float u = -(K[0]*arm +
+                K[1]*vel_arm_f +
+                K[2]*pend +
+                K[3]*vel_pend_f);
+
+
+    u = gainScale * u;
+
+ 
+    if (u > 6) u = 6;
+    if (u < -6) u = -6;
+
+    applyVoltage(u);
+
+    Serial.print(t_now); Serial.print(",");
+    Serial.print(arm,4); Serial.print(",");
+    Serial.print(pend,4); Serial.print(",");
+    Serial.println(u,3);
+
+    prev_arm = arm_cnt;
+    prev_pend = pend_cnt;
+    t_prev = t_now;
+  }
+}
+
+
+void applyVoltage(float v) {
+
+  float duty = v / V_SUPPLY;
+
+  if (duty > 1) duty = 1;
+  if (duty < -1) duty = -1;
+
+  int pwm = abs(duty) * 255;
+
+  digitalWrite(DIR_PIN, (duty > 0) ? LOW : HIGH);
+  analogWrite(PWM_PIN, pwm);
+}
+
+
+// ENCODERS
+
+void enc1A_ISR() {
+  (digitalRead(ENC1_A)!=digitalRead(ENC1_B)) ? count_arm++ : count_arm--;
+}
+void enc1B_ISR() {
+  (digitalRead(ENC1_A)==digitalRead(ENC1_B)) ? count_arm++ : count_arm--;
+}
+void enc2A_ISR() {
+  (digitalRead(ENC2_A)!=digitalRead(ENC2_B)) ? count_pend++ : count_pend--;
+}
+void enc2B_ISR() {
+  (digitalRead(ENC2_A)==digitalRead(ENC2_B)) ? count_pend++ : count_pend--;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Matlab simulation code
 clc;
 clear;
 close all;
