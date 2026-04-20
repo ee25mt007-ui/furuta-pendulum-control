@@ -3,7 +3,7 @@
 const long SERIAL_BAUD = 115200;
 const unsigned long Ts_ms = 10;
 
-// -------- LQR GAINS --------
+// --------  GAINS --------
 float K[4] = {-1.5, -1.0, -30.0, -8.0};
 
 // -------- SCALING --------
